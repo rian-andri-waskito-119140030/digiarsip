@@ -359,10 +359,6 @@ from rapidocr_onnxruntime import RapidOCR  # <- dari rapidocr-onnxruntime
 
 @st.cache_resource
 def get_rapidocr_engine():
-    """
-    Download model RapidOCR ONNX sekali, lalu return engine RapidOCR.
-    Cloud-safe karena cache di /tmp.
-    """
     cache_dir = Path("/tmp/rapidocr_models")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -385,14 +381,43 @@ def get_rapidocr_engine():
         det_model_path=det_model_path,
         rec_model_path=rec_model_path,
         cls_model_path=cls_model_path,
+        use_angle_cls=True,   # <-- tambah ini biar tahan miring
     )
     return engine
 
 
+def preprocess_for_ocr(bgr: np.ndarray) -> np.ndarray:
+    """
+    Preprocess ringan tapi stabil untuk OCR di cloud:
+    - grayscale
+    - denoise halus
+    - adaptive threshold (biar teks tegas)
+    - sedikit sharpen
+    Output: grayscale/binary image
+    """
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+    # denoise ringan
+    gray = cv2.fastNlMeansDenoising(gray, None, 7, 7, 21)
+
+    # adaptive threshold lokal (lebih stabil di scan gelap/terang)
+    t = threshold_local(gray, block_size=35, offset=10, method="gaussian")
+    bw = (gray > t).astype("uint8") * 255
+
+    # sharpen tipis
+    blur = cv2.GaussianBlur(bw, (0, 0), sigmaX=1.0)
+    sharp = cv2.addWeighted(bw, 1.4, blur, -0.4, 0)
+
+    return sharp
+
 def extract_text_from_image(path: Path) -> str:
     """
-    OCR pakai RapidOCR langsung (tanpa Docling).
-    Tidak butuh model.safetensors -> aman cloud.
+    Pipeline OCR stabil untuk Streamlit Cloud:
+    1) baca image
+    2) preprocess OCR
+    3) RapidOCR ONNX
+    4) fallback Tesseract kalau kosong
+    5) normalisasi output (spasi, URL, kata menempel)
     """
     ocr_engine = get_rapidocr_engine()
 
@@ -400,25 +425,42 @@ def extract_text_from_image(path: Path) -> str:
     if img is None:
         return ""
 
-    # RapidOCR return: (result, elapsed)
-    # result: list of [box, text, score]
-    try:
-        result, _ = ocr_engine(img)
-        if not result:
-            return ""
+    # preprocess khusus OCR
+    ocr_img = preprocess_for_ocr(img)
 
-        # gabungkan semua text baris
-        texts = [line[1] for line in result if len(line) >= 2]
-        return " ".join(texts).strip()
+    try:
+        result, _ = ocr_engine(ocr_img)
+        texts = []
+        if result:
+            for line in result:
+                if len(line) >= 2:
+                    texts.append(line[1])
+
+        text = " ".join(texts).strip()
 
     except Exception as e:
         print(f"[RapidOCR failed] {e}")
-        # fallback paling aman: tesseract (kalau terpasang)
+        text = ""
+
+    # fallback tesseract kalau RapidOCR kosong
+    if len(text) < 5:
         try:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            return pytesseract.image_to_string(gray, lang="ind+eng").strip()
+            text = pytesseract.image_to_string(ocr_img, lang="ind+eng").strip()
         except Exception:
-            return ""
+            text = ""
+
+    # normalisasi akhir biar konsisten format metadata
+    text = html.unescape(text or "")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)           # CamelCase nempel
+    text = re.sub(r"http\s*:\s*/\s*/", "http://", text, flags=re.I)
+    text = re.sub(r"https\s*:\s*/\s*/", "https://", text, flags=re.I)
+    text = re.sub(r"\s*/\s*", "/", text)                       # rapikan slash
+    text = re.sub(r"\s*-\s*", "-", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+
+    return text.strip()
+
 
 
     # img = cv2.imread(str(path))
