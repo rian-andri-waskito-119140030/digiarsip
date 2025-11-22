@@ -47,6 +47,9 @@ from google.oauth2.credentials import Credentials
 from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter, ImageFormatOption
 from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
+from modelscope import snapshot_download
+from docling.datamodel.pipeline_options import RapidOcrOptions
+
 # ==========================
 # OCR binary path (Windows)
 # ==========================
@@ -321,6 +324,37 @@ grayscale = False
 # ==========================
 # OCR helpers
 # ==========================
+def get_rapidocr_options():
+    """
+    Download RapidOCR models sekali, lalu kembalikan RapidOcrOptions
+    dengan path model ONNX yang lengkap.
+    """
+    # cache path aman cloud
+    cache_dir = Path("/tmp/rapidocr_models")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # download RapidOCR repo (sekali per container)
+    download_path = snapshot_download(
+        repo_id="RapidAI/RapidOCR",
+        cache_dir=str(cache_dir)
+    )
+
+    # pakai PP-OCRv4 ONNX (sesuai error kamu)
+    det_model_path = os.path.join(
+        download_path, "onnx", "PP-OCRv4", "det", "ch_PP-OCRv4_det_infer.onnx"
+    )
+    rec_model_path = os.path.join(
+        download_path, "onnx", "PP-OCRv4", "rec", "ch_PP-OCRv4_rec_infer.onnx"
+    )
+    cls_model_path = os.path.join(
+        download_path, "onnx", "PP-OCRv4", "cls", "ch_ppocr_mobile_v2.0_cls_infer.onnx"
+    )
+
+    return RapidOcrOptions(
+        det_model_path=det_model_path,
+        rec_model_path=rec_model_path,
+        cls_model_path=cls_model_path,
+    )
 @st.cache_resource
 def get_doc_converter():
     from docling.datamodel.base_models import InputFormat
@@ -329,16 +363,25 @@ def get_doc_converter():
     from pathlib import Path
     import os
 
+    # folder artifacts Docling aman cloud
     ARTIFACTS_DIR = Path("/tmp/docling_artifacts")
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     os.environ["DOCLING_ARTIFACTS_PATH"] = str(ARTIFACTS_DIR)
 
-    pipeline_options = PdfPipelineOptions(do_table_structure=True)
+    # ambil RapidOCR options yang modelnya sudah pasti ada
+    ocr_options = get_rapidocr_options()
+
+    pipeline_options = PdfPipelineOptions(
+        do_table_structure=True,
+        ocr_options=ocr_options,     # <-- kunci fix
+    )
     pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
     pipeline_options.artifacts_path = ARTIFACTS_DIR
 
     return DocumentConverter(
-        format_options={InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options)},
+        format_options={
+            InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options)
+        },
         allowed_formats=[InputFormat.IMAGE],
     )
 
