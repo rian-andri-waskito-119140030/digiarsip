@@ -355,97 +355,71 @@ def get_rapidocr_options():
         rec_model_path=rec_model_path,
         cls_model_path=cls_model_path,
     )
+from rapidocr_onnxruntime import RapidOCR  # <- dari rapidocr-onnxruntime
+
 @st.cache_resource
-def get_doc_converter():
-    from docling.datamodel.base_models import InputFormat
-    from docling.document_converter import DocumentConverter, ImageFormatOption
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from pathlib import Path
-    import os
+def get_rapidocr_engine():
+    """
+    Download model RapidOCR ONNX sekali, lalu return engine RapidOCR.
+    Cloud-safe karena cache di /tmp.
+    """
+    cache_dir = Path("/tmp/rapidocr_models")
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Prepare RapidOCR (download from modelscope)
-    ocr_options = get_rapidocr_options()
-
-    # TRUE FIX: disable everything except OCR
-    pipeline_options = PdfPipelineOptions(
-        do_text_extraction=False,     # disable safetensors model
-        do_table_structure=False,     # disable table model
-        ocr_options=ocr_options
+    download_path = snapshot_download(
+        repo_id="RapidAI/RapidOCR",
+        cache_dir=str(cache_dir)
     )
 
-    return DocumentConverter(
-        format_options={
-            InputFormat.IMAGE: ImageFormatOption(
-                pipeline_options=pipeline_options
-            )
-        },
-        allowed_formats=[InputFormat.IMAGE],
+    det_model_path = os.path.join(
+        download_path, "onnx", "PP-OCRv4", "det", "ch_PP-OCRv4_det_infer.onnx"
     )
+    rec_model_path = os.path.join(
+        download_path, "onnx", "PP-OCRv4", "rec", "ch_PP-OCRv4_rec_infer.onnx"
+    )
+    cls_model_path = os.path.join(
+        download_path, "onnx", "PP-OCRv4", "cls", "ch_ppocr_mobile_v2.0_cls_infer.onnx"
+    )
+
+    engine = RapidOCR(
+        det_model_path=det_model_path,
+        rec_model_path=rec_model_path,
+        cls_model_path=cls_model_path,
+    )
+    return engine
 
 
 def extract_text_from_image(path: Path) -> str:
-    import os
-    from pathlib import Path
+    """
+    OCR pakai RapidOCR langsung (tanpa Docling).
+    Tidak butuh model.safetensors -> aman cloud.
+    """
+    ocr_engine = get_rapidocr_engine()
 
-    # =========================
-    # 1) Arahkan artifacts RapidOCR ke /tmp
-    # =========================
-    ARTIFACTS_DIR = Path("/tmp/docling_artifacts")
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    os.environ["DOCLING_ARTIFACTS_PATH"] = str(ARTIFACTS_DIR)
-
-    # =========================
-    # 2) Konfigurasi Docling
-    # =========================
-    pipeline_options = PdfPipelineOptions(do_table_structure=True)
-    pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
-
-    # penting: paksa docling/rapidocr pakai folder artifacts ini
-    pipeline_options.artifacts_path = ARTIFACTS_DIR
-
-    doc_converter = get_doc_converter()
-
-    # =========================
-    # 3) Preprocess gambar
-    # =========================
     img = cv2.imread(str(path))
     if img is None:
         return ""
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # RapidOCR return: (result, elapsed)
+    # result: list of [box, text, score]
+    try:
+        result, _ = ocr_engine(img)
+        if not result:
+            return ""
 
-    mean_intensity = np.mean(gray)
-    if mean_intensity < 10:
-        print("The image appears to be blackened. Skipping further processing.")
-        return ""
+        # gabungkan semua text baris
+        texts = [line[1] for line in result if len(line) >= 2]
+        return " ".join(texts).strip()
 
-    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    if laplacian_var < 100:
-        blurred_correction = cv2.GaussianBlur(gray, (5, 5), 0)
-        gray = cv2.addWeighted(gray, 1.5, blurred_correction, -0.5, 0)
+    except Exception as e:
+        print(f"[RapidOCR failed] {e}")
+        # fallback paling aman: tesseract (kalau terpasang)
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            return pytesseract.image_to_string(gray, lang="ind+eng").strip()
+        except Exception:
+            return ""
 
-    denoised = cv2.fastNlMeansDenoising(gray, None, 7, 7, 21)
-    processed_image = Image.fromarray(denoised)
-    processed_image = ImageEnhance.Contrast(processed_image).enhance(1.3)
-    processed_image = ImageEnhance.Sharpness(processed_image).enhance(1.8)
-    processed_image = processed_image.convert("RGB")
-
-    # =========================
-    # 4) Simpan sementara ke /tmp (bukan path.parent)
-    # =========================
-    TMP_DIR = Path("/tmp/digiarsip_tmp")
-    TMP_DIR.mkdir(parents=True, exist_ok=True)
-
-    tmp_path = TMP_DIR / f"{path.stem}_processed.png"
-    processed_image.save(str(tmp_path))
-
-    # =========================
-    # 5) OCR Docling
-    # =========================
-    conversion_result = doc_converter.convert(str(tmp_path))
-    text_output = conversion_result.document.export_to_text()
-
-    return (text_output or "").strip()
 
     # img = cv2.imread(str(path))
     # if img is None:
