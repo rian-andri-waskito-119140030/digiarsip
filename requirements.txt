@@ -2,8 +2,6 @@ streamlit
 streamlit-drawable-canvas
 
 # Image & OCR
-opencv-python
-opencv-python-headless
 pytesseract
 Pillow
 numpy
@@ -28,3 +26,5 @@ gdown
 docling
 rapidocr-onnxruntime
 onnxruntime
+
+opencv-python-headless==4.10.0.84
