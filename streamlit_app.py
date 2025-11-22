@@ -20,7 +20,7 @@ from pathlib import Path
 from PIL import Image
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
-
+import gdown
 import torch
 import torchvision.transforms as torchvision_T
 from torchvision.models.segmentation import deeplabv3_resnet50, deeplabv3_mobilenet_v3_large
@@ -46,19 +46,50 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tess
 # Model loading
 # ==========================
 # @st.cache(allow_output_mutation=True)
+# ========= Google Drive Model IDs =========
+MBV3_ID = "1kJNrlX5iWlrNF3yA88FmhHm9n4tBElOg"
+R50_ID  = "13JcqlolBrUypnt2gzDikj9BfV2BqHM-j"
+
+MBV3_URL = f"https://drive.google.com/uc?id={MBV3_ID}"
+R50_URL  = f"https://drive.google.com/uc?id={R50_ID}"
+
+# ========= Path aman untuk Streamlit Cloud =========
+MODEL_DIR = Path("/tmp/digiarsip_models")
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+MBV3_PATH = MODEL_DIR / "model_mbv3_iou_mix_2C049.pth"
+R50_PATH  = MODEL_DIR / "model_r50_iou_mix_2C020.pth"
+
+
+def download_if_missing(path: Path, url: str):
+    """Download model dari Google Drive jika belum ada."""
+    if not path.exists():
+        print(f"[INFO] Downloading model to: {path}")
+        gdown.download(url, str(path), quiet=False)
+
+
+# ============= MODEL LOADING FIXED VERSION =============
 def load_model(num_classes=2, model_name="mbv3", device=torch.device("cpu")):
+    # Tentukan model dan path checkpoint
     if model_name == "mbv3":
         model = deeplabv3_mobilenet_v3_large(num_classes=num_classes, aux_loss=True)
-        checkpoint_path = os.path.join(os.getcwd(), "model_mbv3_iou_mix_2C049.pth")
+        checkpoint_path = MBV3_PATH
+        checkpoint_url  = MBV3_URL
     else:
         model = deeplabv3_resnet50(num_classes=num_classes, aux_loss=True)
-        checkpoint_path = os.path.join(os.getcwd(), "model_r50_iou_mix_2C020.pth")
+        checkpoint_path = R50_PATH
+        checkpoint_url  = R50_URL
 
+    # Download model jika belum ada di /tmp
+    download_if_missing(checkpoint_path, checkpoint_url)
+
+    # Load model
     model.to(device)
     checkpoints = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoints, strict=False)
     model.eval()
 
+    # warm-up
     _ = model(torch.randn((1, 3, 384, 384)))
 
     return model
