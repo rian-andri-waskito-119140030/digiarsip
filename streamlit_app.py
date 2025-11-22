@@ -301,36 +301,70 @@ grayscale = False
 # ==========================
 
 def extract_text_from_image(path: Path) -> str:
-    # === Konfigurasi Docling ===
+    import os
+    from pathlib import Path
+
+    # =========================
+    # 1) Arahkan artifacts RapidOCR ke /tmp
+    # =========================
+    ARTIFACTS_DIR = Path("/tmp/docling_artifacts")
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ["DOCLING_ARTIFACTS_PATH"] = str(ARTIFACTS_DIR)
+
+    # =========================
+    # 2) Konfigurasi Docling
+    # =========================
     pipeline_options = PdfPipelineOptions(do_table_structure=True)
     pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
+
+    # penting: paksa docling/rapidocr pakai folder artifacts ini
+    pipeline_options.artifacts_path = ARTIFACTS_DIR
+
     doc_converter = DocumentConverter(
         format_options={InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options)},
         allowed_formats=[InputFormat.IMAGE],
     )
+
+    # =========================
+    # 3) Preprocess gambar
+    # =========================
     img = cv2.imread(str(path))
     if img is None:
         return ""
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
     mean_intensity = np.mean(gray)
     if mean_intensity < 10:
         print("The image appears to be blackened. Skipping further processing.")
-        return img
+        return ""
+
     laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
     if laplacian_var < 100:
         blurred_correction = cv2.GaussianBlur(gray, (5, 5), 0)
         gray = cv2.addWeighted(gray, 1.5, blurred_correction, -0.5, 0)
+
     denoised = cv2.fastNlMeansDenoising(gray, None, 7, 7, 21)
     processed_image = Image.fromarray(denoised)
     processed_image = ImageEnhance.Contrast(processed_image).enhance(1.3)
     processed_image = ImageEnhance.Sharpness(processed_image).enhance(1.8)
-
-    # 👇 final conversion to display compatibility
     processed_image = processed_image.convert("RGB")
-    tmp_path = path.parent / f"{path.stem}_processed.png"
+
+    # =========================
+    # 4) Simpan sementara ke /tmp (bukan path.parent)
+    # =========================
+    TMP_DIR = Path("/tmp/digiarsip_tmp")
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    tmp_path = TMP_DIR / f"{path.stem}_processed.png"
     processed_image.save(str(tmp_path))
+
+    # =========================
+    # 5) OCR Docling
+    # =========================
     conversion_result = doc_converter.convert(str(tmp_path))
     text_output = conversion_result.document.export_to_text()
+
     return (text_output or "").strip()
 
     # img = cv2.imread(str(path))
