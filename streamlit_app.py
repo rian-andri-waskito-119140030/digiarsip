@@ -29,7 +29,6 @@ from PyPDF2 import PdfReader
 from skimage.filters import threshold_local
 from pathlib import Path
 from PIL import Image
-import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import gdown
 import torch
@@ -51,7 +50,12 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMo
 # ==========================
 # OCR binary path (Windows)
 # ==========================
-pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+# ==========================
+# OCR binary path (Windows only)
+# ==========================
+import platform
+if platform.system().lower() == "windows":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
 # ==========================
 # Model loading
@@ -100,8 +104,12 @@ def load_model(num_classes=2, model_name="mbv3", device=torch.device("cpu")):
     model.load_state_dict(checkpoints, strict=False)
     model.eval()
 
-    # warm-up
-    _ = model(torch.randn((1, 3, 384, 384)))
+    # warm-up (skip di Streamlit Cloud untuk percepat startup)
+    try:
+        if os.environ.get("STREAMLIT_CLOUD") != "1":
+            _ = model(torch.randn((1, 3, 384, 384)))
+    except Exception:
+        pass
 
     return model
 
