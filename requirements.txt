@@ -25,3 +25,5 @@ gdown
 
 # Docling OCR / document pipeline
 docling
+rapidocr-onnxruntime
+onnxruntime
