@@ -1,3 +1,14 @@
+import streamlit as st
+
+st.set_page_config(page_title="DigiarSip", layout="wide")
+
+import os
+from pathlib import Path
+
+# cache folder aman cloud
+Path("/tmp/docling_artifacts").mkdir(parents=True, exist_ok=True)
+os.environ["DOCLING_ARTIFACTS_PATH"] = "/tmp/docling_artifacts"
+
 import os
 import gc
 import io
@@ -94,7 +105,10 @@ def load_model(num_classes=2, model_name="mbv3", device=torch.device("cpu")):
 
     return model
 
-
+@st.cache_resource
+def get_model_cached(model_name="mbv3"):
+    # load_model kamu tetap dipakai, tapi sekarang dicache
+    return load_model(model_name=model_name)
 def image_preprocess_transforms(mean=(0.4611, 0.4359, 0.3905), std=(0.2193, 0.2150, 0.2109)):
     common_transforms = torchvision_T.Compose(
         [
@@ -299,6 +313,26 @@ grayscale = False
 # ==========================
 # OCR helpers
 # ==========================
+@st.cache_resource
+def get_doc_converter():
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import DocumentConverter, ImageFormatOption
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
+    from pathlib import Path
+    import os
+
+    ARTIFACTS_DIR = Path("/tmp/docling_artifacts")
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ["DOCLING_ARTIFACTS_PATH"] = str(ARTIFACTS_DIR)
+
+    pipeline_options = PdfPipelineOptions(do_table_structure=True)
+    pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
+    pipeline_options.artifacts_path = ARTIFACTS_DIR
+
+    return DocumentConverter(
+        format_options={InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options)},
+        allowed_formats=[InputFormat.IMAGE],
+    )
 
 def extract_text_from_image(path: Path) -> str:
     import os
@@ -320,10 +354,7 @@ def extract_text_from_image(path: Path) -> str:
     # penting: paksa docling/rapidocr pakai folder artifacts ini
     pipeline_options.artifacts_path = ARTIFACTS_DIR
 
-    doc_converter = DocumentConverter(
-        format_options={InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options)},
-        allowed_formats=[InputFormat.IMAGE],
-    )
+    doc_converter = get_doc_converter()
 
     # =========================
     # 3) Preprocess gambar
@@ -1509,7 +1540,7 @@ IMAGE_SIZE = 384
 preprocess_transforms = image_preprocess_transforms()
 
 st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
-st.title("Batch Document Scanner — DeepLabV3 + CamScanner Enhance")
+st.title("Batch Document Scanner")
 
 uploaded_files = st.file_uploader(
     "Upload document images (png/jpg/jpeg). You can select many files",
