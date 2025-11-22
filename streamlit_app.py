@@ -359,31 +359,29 @@ def get_rapidocr_options():
 def get_doc_converter():
     from docling.datamodel.base_models import InputFormat
     from docling.document_converter import DocumentConverter, ImageFormatOption
-    from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
     from pathlib import Path
     import os
 
-    # folder artifacts Docling aman cloud
-    ARTIFACTS_DIR = Path("/tmp/docling_artifacts")
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    os.environ["DOCLING_ARTIFACTS_PATH"] = str(ARTIFACTS_DIR)
-
-    # ambil RapidOCR options yang modelnya sudah pasti ada
+    # Prepare RapidOCR (download from modelscope)
     ocr_options = get_rapidocr_options()
 
+    # TRUE FIX: disable everything except OCR
     pipeline_options = PdfPipelineOptions(
-        do_table_structure=True,
-        ocr_options=ocr_options,     # <-- kunci fix
+        do_text_extraction=False,     # disable safetensors model
+        do_table_structure=False,     # disable table model
+        ocr_options=ocr_options
     )
-    pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
-    pipeline_options.artifacts_path = ARTIFACTS_DIR
 
     return DocumentConverter(
         format_options={
-            InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options)
+            InputFormat.IMAGE: ImageFormatOption(
+                pipeline_options=pipeline_options
+            )
         },
         allowed_formats=[InputFormat.IMAGE],
     )
+
 
 def extract_text_from_image(path: Path) -> str:
     import os
