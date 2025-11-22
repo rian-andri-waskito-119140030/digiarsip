@@ -1432,8 +1432,13 @@ def mirror_local_tree_to_drive_year(local_root: Path, drive_root_name: str, sele
 # ==========================
 STREAMLIT_STATIC_PATH = pathlib.Path(st.__path__[0]) / "static"
 DOWNLOADS_PATH = STREAMLIT_STATIC_PATH / "downloads"
-if not DOWNLOADS_PATH.is_dir():
-    DOWNLOADS_PATH.mkdir()
+# Streamlit Cloud biasanya punya env var ini
+IS_CLOUD = os.environ.get("STREAMLIT_RUNTIME") == "cloud" or os.path.exists("/mount/src")
+
+BASE_DIR = Path("/tmp/digiarsip") if IS_CLOUD else Path(".")
+DOWNLOADS_PATH = BASE_DIR / "downloads"
+
+DOWNLOADS_PATH.mkdir(parents=True, exist_ok=True)
 
 IMAGE_SIZE = 384
 preprocess_transforms = image_preprocess_transforms()
