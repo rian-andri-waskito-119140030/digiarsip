@@ -1,0 +1,25 @@
+streamlit
+streamlit-drawable-canvas
+
+# Image & OCR
+opencv-python-headless
+pytesseract
+Pillow
+numpy
+scikit-image
+
+# PDF tools
+PyPDF2
+
+# Deep learning / segmentation
+torch
+torchvision
+
+# Google Drive API
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+
+# Docling OCR / document pipeline
+docling
